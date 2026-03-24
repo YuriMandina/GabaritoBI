@@ -1,0 +1,32 @@
+# =========================
+# GABARITOBI - GIT IGNORE
+# =========================
+
+# 1. SEGURANÇA (NUNCA COMITAR)
+.env
+.env.local
+.env.*.local
+*.pem
+
+# 2. PYTHON / BACKEND
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.venv/
+*.log
+# Ignorar PDFs gerados nos testes locais para não sujar o repositório
+*.pdf  
+
+# 3. NODE.JS / REACT / FRONTEND
+node_modules/
+dist/
+build/
+.npm/
+
+# 4. SISTEMAS OPERACIONAIS E IDEs
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
