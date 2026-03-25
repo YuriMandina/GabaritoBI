@@ -71,8 +71,8 @@ function App() {
       onClick={() => setMenuAtivo(id)}
       className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 print:hidden ${
         menuAtivo === id 
-          ? 'bg-gradient-to-r from-indigo-500/20 to-purple-500/20 text-indigo-400 border border-indigo-500/30' 
-          : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+          ? 'bg-gradient-to-r from-indigo-500/20 to-purple-500/20 text-indigo-400 border border-indigo-500/30 shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)]' 
+          : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'
       }`}
     >
       <Icon size={20} className={menuAtivo === id ? 'text-indigo-400' : ''} />
@@ -88,13 +88,11 @@ function App() {
           @media print {
             @page { size: landscape; margin: 10mm 15mm; }
             
-            /* Força a transparência em todos os contêineres estruturais e anula as cores escuras do tema. */
             html, body, #root, main, div[class*="bg-slate"] { 
               background-color: transparent !important; 
               background-image: none !important;
             }
 
-            /* Desligar efeitos visuais do tema escuro */
             * {
               animation: none !important;
               transition: none !important;
@@ -104,7 +102,6 @@ function App() {
               filter: none !important;
             }
 
-            /* Garantir o fluxo de página natural */
             html, body, #root { 
               display: block !important;
               height: auto !important; 
@@ -113,7 +110,6 @@ function App() {
               position: static !important;
             }
 
-            /* Solta as amarras do Tailwind nos contêineres principais */
             main, .flex-1, .h-screen {
               height: auto !important;
               min-height: auto !important;
@@ -124,7 +120,6 @@ function App() {
             table { width: 100%; border-collapse: collapse; page-break-inside: auto; margin-bottom: 20px; }
             tbody { display: table-row-group; }
             
-            /* Impede que o corte passe no meio da letra */
             tr, td, th { page-break-inside: avoid !important; break-inside: avoid !important; }
             thead { display: table-header-group; }
             
@@ -138,7 +133,7 @@ function App() {
       <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col z-20 print:hidden">
         <div className="h-20 flex items-center px-6 border-b border-slate-800">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
               <TrendingUp size={18} className="text-white" />
             </div>
             <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">GabaritoBI</h1>
@@ -153,22 +148,23 @@ function App() {
       </aside>
 
       {/* ÁREA PRINCIPAL */}
-      <main className="flex-1 flex flex-col relative overflow-y-auto print:!block print:!h-auto print:!overflow-visible">
+      <main className="flex-1 flex flex-col relative overflow-y-auto overflow-x-hidden print:!block print:!h-auto print:!overflow-visible">
         
+        {/* BLOBS DE LUZ NO FRONTEND (Tela) */}
         <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none z-0 print:hidden"></div>
         <div className="absolute bottom-[-10%] right-[-5%] w-96 h-96 bg-purple-500/10 rounded-full blur-[100px] pointer-events-none z-0 print:hidden"></div>
 
-        <header className="h-20 bg-slate-900/50 backdrop-blur-md border-b border-slate-800 flex items-center justify-between px-8 z-10 sticky top-0 print:hidden">
-          <div className="flex items-center bg-slate-800 border border-slate-700 rounded-full px-4 py-2 w-96 focus-within:border-indigo-500 focus-within:ring-1 focus-within:ring-indigo-500 transition-all">
+        <header className="h-20 bg-slate-900/80 backdrop-blur-md border-b border-slate-800 flex items-center justify-between px-8 z-50 sticky top-0 print:hidden">
+          <div className="flex items-center bg-slate-800/50 border border-slate-700/50 rounded-full px-4 py-2 w-96 focus-within:border-indigo-500/50 focus-within:ring-1 focus-within:ring-indigo-500/50 transition-all shadow-inner">
             <Search size={18} className="text-slate-400" />
             <input type="text" placeholder="Buscar relatórios..." className="bg-transparent border-none outline-none text-sm ml-3 w-full text-slate-200" />
           </div>
           <div className="flex items-center gap-6">
-            <div className="flex items-center gap-3 pl-6 border-l border-slate-800 cursor-pointer">
+            <div className="flex items-center gap-3 pl-6 border-l border-slate-800 cursor-pointer hover:opacity-80 transition-opacity">
               <div className="text-right hidden md:block">
                 <p className="text-sm font-medium text-slate-200">Admin Financeiro</p>
               </div>
-              <div className="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center border-2 border-slate-600">
+              <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center border border-slate-600 shadow-md">
                 <Users size={20} className="text-slate-300" />
               </div>
             </div>
@@ -178,17 +174,18 @@ function App() {
         <div className="flex-1 p-8 z-10 print:!p-0 print:!m-0 print:!block print:!overflow-visible">
           
           <div className="mb-8 print:hidden">
-            <h2 className="text-2xl font-bold text-white mb-1">Módulo de Contas a Pagar</h2>
+            <h2 className="text-3xl font-bold text-white mb-2 tracking-tight">Módulo de Contas a Pagar</h2>
             <p className="text-slate-400">Sincronize os dados e imprima o relatório detalhado.</p>
           </div>
 
+          {/* CABEÇALHO DE IMPRESSÃO */}
           <div className="hidden print:flex items-center justify-between border-b-2 border-slate-800 pb-4 mb-6 mt-4">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center">
-                <TrendingUp size={24} className="text-white" />
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+                <TrendingUp size={18} className="text-white" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold text-slate-900 uppercase tracking-tight">GabaritoBI</h1>
+                <h1 className="text-2xl font-bold text-slate-900 tracking-tight">GabaritoBI</h1>
                 <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Inteligência Financeira</p>
               </div>
             </div>
@@ -198,9 +195,10 @@ function App() {
             </div>
           </div>
 
-          <div className="bg-slate-800/40 backdrop-blur-xl border border-slate-700/50 rounded-2xl p-8 max-w-2xl shadow-2xl relative overflow-hidden mb-8 print:hidden">
+          {/* ALTO PADRÃO: Glassmorphism no Card de Parâmetros */}
+          <div className="bg-white/[0.02] backdrop-blur-2xl border border-white/[0.05] shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)] rounded-2xl p-8 max-w-2xl relative overflow-hidden mb-8 print:hidden">
             <div className="flex items-start gap-4 mb-8">
-              <div className="p-3 bg-indigo-500/20 rounded-xl border border-indigo-500/30">
+              <div className="p-3 bg-indigo-500/10 rounded-xl border border-indigo-500/20 shadow-inner">
                 <CalendarDays className="text-indigo-400" size={24} />
               </div>
               <div>
@@ -212,73 +210,97 @@ function App() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
               <div className="flex flex-col gap-2">
                 <label className="text-sm font-medium text-slate-300 ml-1">Data Inicial</label>
-                <input type="date" value={dataInicial} onChange={(e) => setDataInicial(e.target.value)} className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-slate-200 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all [&::-webkit-calendar-picker-indicator]:filter [&::-webkit-calendar-picker-indicator]:invert" />
+                <input type="date" value={dataInicial} onChange={(e) => setDataInicial(e.target.value)} className="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl px-4 py-3 text-slate-200 focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 transition-all [&::-webkit-calendar-picker-indicator]:filter [&::-webkit-calendar-picker-indicator]:invert shadow-inner" />
               </div>
               <div className="flex flex-col gap-2">
                 <label className="text-sm font-medium text-slate-300 ml-1">Data Final</label>
-                <input type="date" value={dataFinal} onChange={(e) => setDataFinal(e.target.value)} className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-slate-200 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all [&::-webkit-calendar-picker-indicator]:filter [&::-webkit-calendar-picker-indicator]:invert" />
+                <input type="date" value={dataFinal} onChange={(e) => setDataFinal(e.target.value)} className="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl px-4 py-3 text-slate-200 focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 transition-all [&::-webkit-calendar-picker-indicator]:filter [&::-webkit-calendar-picker-indicator]:invert shadow-inner" />
               </div>
             </div>
 
-            <button onClick={handleBuscarDados} disabled={carregandoTela} className="w-full relative group overflow-hidden rounded-xl p-[1px]">
-              <span className="absolute inset-0 bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-500 opacity-70 group-hover:opacity-100 transition-opacity duration-300"></span>
-              <div className="relative flex items-center justify-center gap-2 w-full bg-slate-900 px-6 py-4 rounded-xl">
+            {/* ALTO PADRÃO: Botão com Borda Mágica (Conic Gradient) */}
+            <button onClick={handleBuscarDados} disabled={carregandoTela} className="relative w-full group overflow-hidden rounded-xl p-[1px] disabled:opacity-70 disabled:cursor-not-allowed">
+              <span className="absolute inset-[-1000%] animate-[spin_3s_linear_infinite] bg-[conic-gradient(from_90deg_at_50%_50%,#c084fc_0%,#818cf8_50%,#c084fc_100%)] opacity-0 group-hover:opacity-100 transition-opacity duration-500"></span>
+              <span className="absolute inset-0 bg-gradient-to-r from-indigo-500/80 to-purple-500/80 group-hover:opacity-0 transition-opacity duration-500"></span>
+              
+              <div className="relative flex items-center justify-center gap-2 w-full bg-slate-900/90 backdrop-blur-xl px-6 py-4 rounded-xl transition-all">
                 {carregandoTela ? (
-                  <><Loader2 className="animate-spin text-indigo-400" size={20} /><span className="font-semibold text-indigo-400">SINCRONIZANDO OMIE...</span></>
+                  <><Loader2 className="animate-spin text-indigo-400" size={20} /><span className="font-semibold text-indigo-300">SINCRONIZANDO OMIE...</span></>
                 ) : (
-                  <><Database className="text-indigo-400" size={20} /><span className="font-semibold text-white tracking-wide">BUSCAR DADOS & RESUMO</span></>
+                  <><Database className="text-indigo-400 group-hover:text-indigo-300 transition-colors" size={20} /><span className="font-bold text-white tracking-wide">BUSCAR DADOS & RESUMO</span></>
                 )}
               </div>
             </button>
           </div>
 
-          {dadosAgrupados !== null && (
-            <div className="bg-slate-800/40 print:bg-transparent backdrop-blur-xl border border-slate-700/50 print:border-none rounded-2xl p-8 print:!p-0 shadow-2xl print:shadow-none relative animate-[fadeIn_0.5s_ease-out] print:!block print:!overflow-visible">
+          {/* ALTO PADRÃO: Skeleton Loaders */}
+          {carregandoTela && (
+            <div className="bg-white/[0.02] backdrop-blur-2xl border border-white/[0.05] shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)] rounded-2xl p-8 mb-8 animate-pulse print:hidden">
+              <div className="h-8 bg-slate-700/30 rounded-lg w-1/3 mb-8"></div>
+              <div className="space-y-4">
+                {[1, 2, 3, 4].map(i => (
+                  <div key={i} className="flex gap-4">
+                    <div className="h-10 bg-slate-700/20 rounded-lg w-1/4"></div>
+                    <div className="h-10 bg-slate-700/20 rounded-lg w-1/2"></div>
+                    <div className="h-10 bg-slate-700/20 rounded-lg w-1/4"></div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!carregandoTela && dadosAgrupados !== null && (
+            <div className="bg-white/[0.02] print:bg-transparent backdrop-blur-2xl border border-white/[0.05] print:border-none shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)] rounded-2xl p-8 print:!p-0 print:shadow-none relative animate-[fadeIn_0.5s_ease-out] print:!block print:!overflow-visible">
               
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4 print:hidden">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-10 gap-4 print:hidden">
                 <div>
                   <h3 className="text-2xl font-bold text-white">Resultados da Sincronização</h3>
-                  <p className="text-emerald-400 font-semibold text-2xl mt-1">Total Geral: R$ {totalGeral.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
+                  <div className="inline-block mt-3 px-4 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
+                    <p className="text-emerald-400 font-bold text-xl">Total Geral: R$ {totalGeral.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
+                  </div>
                 </div>
                 {dadosAgrupados.length > 0 && (
-                  <button onClick={handleImprimir} className="flex items-center gap-2 bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600 hover:text-white border border-emerald-500/30 px-5 py-3 rounded-xl transition-colors font-bold text-sm">
-                    <Printer size={18} /> IMPRIMIR RELATÓRIO
+                  <button onClick={handleImprimir} className="flex items-center gap-2 bg-slate-800 text-slate-300 hover:bg-emerald-600 hover:text-white hover:border-emerald-500 hover:shadow-[0_0_20px_rgba(16,185,129,0.3)] border border-slate-700 px-6 py-3 rounded-xl transition-all duration-300 font-bold text-sm group">
+                    <Printer size={18} className="group-hover:scale-110 transition-transform" /> IMPRIMIR RELATÓRIO
                   </button>
                 )}
               </div>
 
               {dadosAgrupados.length === 0 ? (
-                <div className="text-center py-10 bg-slate-900/30 border border-dashed border-slate-700 print:hidden"><p className="text-slate-400">Nenhuma conta encontrada.</p></div>
+                <div className="text-center py-16 bg-slate-900/30 border border-dashed border-slate-700 rounded-2xl print:hidden">
+                  <FileText size={48} className="mx-auto text-slate-600 mb-4" />
+                  <p className="text-slate-400 font-medium">Nenhuma conta encontrada para o período.</p>
+                </div>
               ) : (
                 <div className="print:block">
                   
                   {/* BLOCO 1: RESUMO POR CATEGORIA */}
-                  <div className="mb-10 print:mb-8">
-                    <h4 className="text-lg font-bold text-indigo-400 print:text-slate-900 uppercase tracking-wide mb-4">
+                  <div className="mb-12 print:mb-8">
+                    <h4 className="text-lg font-bold text-indigo-400 print:text-slate-900 uppercase tracking-wider mb-4">
                       Resumo por Categoria de Despesa
                     </h4>
-                    <div className="overflow-x-auto rounded-xl border border-slate-700/50 print:border-none print:overflow-visible">
+                    <div className="overflow-x-auto rounded-xl border border-slate-700/50 print:border-none print:overflow-visible shadow-lg shadow-black/20 print:shadow-none">
                       <table className="w-full text-left border-collapse whitespace-nowrap">
                         <thead>
                           <tr className="bg-slate-900/80 print:bg-slate-100 text-slate-300 print:text-slate-900 text-xs font-bold border-b print:border-b-2 border-slate-700/50 print:border-slate-800">
-                            <th className="py-3 px-4 uppercase">Categoria</th>
-                            <th className="py-3 px-4 text-right uppercase">Total a Pagar</th>
+                            <th className="py-4 px-5 uppercase">Categoria</th>
+                            <th className="py-4 px-5 text-right uppercase">Total a Pagar</th>
                           </tr>
                         </thead>
                         <tbody className="text-sm">
                           {resumoCategorias.map((item, idx) => (
-                            <tr key={idx} className={`border-b border-slate-700/30 print:border-slate-300 text-slate-300 print:text-slate-800 hover:bg-slate-800/50 print:hover:bg-transparent ${idx % 2 === 0 ? 'print:bg-white' : 'print:bg-slate-50/50'}`}>
-                              <td className="py-2.5 px-4 font-medium">{item.categoria}</td>
-                              <td className="py-2.5 px-4 text-right font-bold text-slate-200 print:text-slate-900">
+                            <tr key={idx} className={`group border-b border-slate-700/30 print:border-slate-300 text-slate-300 print:text-slate-800 hover:bg-slate-800/80 print:hover:bg-transparent transition-colors ${idx % 2 === 0 ? 'print:bg-white' : 'print:bg-slate-50/50'}`}>
+                              <td className="py-3 px-5 font-medium group-hover:text-indigo-300 transition-colors">{item.categoria}</td>
+                              <td className="py-3 px-5 text-right font-bold text-slate-200 print:text-slate-900 group-hover:text-white transition-colors">
                                 R$ {item.total.toLocaleString('pt-BR', {minimumFractionDigits: 2})}
                               </td>
                             </tr>
                           ))}
                           <tr className="bg-slate-800/80 print:bg-slate-200 border-t-2 border-slate-600 print:border-b-2 print:border-slate-800">
-                            <td className="py-3 px-4 text-right font-bold text-slate-300 print:text-slate-900 uppercase">
+                            <td className="py-4 px-5 text-right font-bold text-slate-300 print:text-slate-900 uppercase text-lg">
                               Total Geral
                             </td>
-                            <td className="py-3 px-4 text-right font-bold text-emerald-400 print:text-slate-900 text-lg">
+                            <td className="py-4 px-5 text-right font-bold text-emerald-400 print:text-slate-900 text-lg">
                               R$ {totalGeral.toLocaleString('pt-BR', {minimumFractionDigits: 2})}
                             </td>
                           </tr>
@@ -288,20 +310,20 @@ function App() {
                   </div>
 
                   {/* BLOCO 2: DETALHAMENTO DE CONTAS */}
-                  <h4 className="text-lg font-bold text-indigo-400 print:text-slate-900 uppercase tracking-wide mb-4">
+                  <h4 className="text-lg font-bold text-indigo-400 print:text-slate-900 uppercase tracking-wider mb-4">
                     Detalhamento de Títulos
                   </h4>
-                  <div className="overflow-x-auto rounded-xl border border-slate-700/50 print:border-none print:overflow-visible">
+                  <div className="overflow-x-auto rounded-xl border border-slate-700/50 print:border-none print:overflow-visible shadow-lg shadow-black/20 print:shadow-none">
                     <table className="w-full text-left border-collapse whitespace-nowrap">
                       <thead>
                         <tr className="bg-slate-900/80 print:bg-slate-100 text-slate-300 print:text-slate-900 text-xs font-bold border-b print:border-b-2 border-slate-700/50 print:border-slate-800">
-                          <th className="py-3 px-4 text-center">Data Emissão</th>
-                          <th className="py-3 px-4">Categoria</th>
-                          <th className="py-3 px-4">Fornecedor</th>
-                          <th className="py-3 px-4 text-center">Vencimento</th>
-                          <th className="py-3 px-4 text-center">Nº Nota</th>
-                          <th className="py-3 px-4 text-center">Parcela</th>
-                          <th className="py-3 px-4 text-right">Valor</th>
+                          <th className="py-4 px-5 text-center">Data Emissão</th>
+                          <th className="py-4 px-5">Categoria</th>
+                          <th className="py-4 px-5">Fornecedor</th>
+                          <th className="py-4 px-5 text-center">Vencimento</th>
+                          <th className="py-4 px-5 text-center">Nº Nota</th>
+                          <th className="py-4 px-5 text-center">Parcela</th>
+                          <th className="py-4 px-5 text-right">Valor</th>
                         </tr>
                       </thead>
                       <tbody className="text-sm">
@@ -310,24 +332,24 @@ function App() {
                           <React.Fragment key={gIdx}>
                             
                             {grupo.contas.map((conta, cIdx) => (
-                              <tr key={`${gIdx}-${cIdx}`} className={`border-b border-slate-700/30 print:border-slate-300 text-slate-400 print:text-slate-800 text-xs hover:bg-slate-800/50 print:hover:bg-transparent ${cIdx % 2 === 0 ? 'print:bg-white' : 'print:bg-slate-50/50'}`}>
-                                <td className="py-2.5 px-4 text-center">{conta.data_emissao}</td>
-                                <td className="py-2.5 px-4 truncate max-w-[200px] print:max-w-none">{conta.desc_categoria}</td>
-                                <td className="py-2.5 px-4 truncate max-w-[250px] print:max-w-none font-medium text-slate-200 print:text-slate-900">{conta.nome_fornecedor}</td>
-                                <td className="py-2.5 px-4 text-center">{conta.data_previsao_br}</td>
-                                <td className="py-2.5 px-4 text-center">{conta.numero_documento_fiscal}</td>
-                                <td className="py-2.5 px-4 text-center">{conta.numero_parcela}</td>
-                                <td className="py-2.5 px-4 text-right font-medium text-slate-200 print:text-slate-900">
+                              <tr key={`${gIdx}-${cIdx}`} className={`group border-b border-slate-700/30 print:border-slate-300 text-slate-400 print:text-slate-800 text-xs hover:bg-slate-800/80 print:hover:bg-transparent transition-colors ${cIdx % 2 === 0 ? 'print:bg-white' : 'print:bg-slate-50/50'}`}>
+                                <td className="py-3 px-5 text-center group-hover:text-slate-300 transition-colors">{conta.data_emissao}</td>
+                                <td className="py-3 px-5 truncate max-w-[200px] print:max-w-none group-hover:text-indigo-300 transition-colors">{conta.desc_categoria}</td>
+                                <td className="py-3 px-5 truncate max-w-[250px] print:max-w-none font-medium text-slate-200 print:text-slate-900 group-hover:text-white transition-colors">{conta.nome_fornecedor}</td>
+                                <td className="py-3 px-5 text-center group-hover:text-slate-300 transition-colors">{conta.data_previsao_br}</td>
+                                <td className="py-3 px-5 text-center group-hover:text-slate-300 transition-colors">{conta.numero_documento_fiscal}</td>
+                                <td className="py-3 px-5 text-center group-hover:text-slate-300 transition-colors">{conta.numero_parcela}</td>
+                                <td className="py-3 px-5 text-right font-medium text-slate-200 print:text-slate-900 group-hover:text-emerald-400 transition-colors">
                                   R$ {conta.saldo_devedor.toLocaleString('pt-BR', {minimumFractionDigits: 2})}
                                 </td>
                               </tr>
                             ))}
 
                             <tr className="bg-slate-800/60 print:bg-slate-200 border-b-2 border-slate-600 print:border-slate-800">
-                              <td colSpan="6" className="py-3 px-4 text-right font-bold text-slate-300 print:text-slate-900 text-xs uppercase">
+                              <td colSpan="6" className="py-4 px-5 text-right font-bold text-slate-300 print:text-slate-900 text-xs uppercase">
                                 Total a Pagar em {grupo.dataVencimento}
                               </td>
-                              <td className="py-3 px-4 text-right font-bold text-emerald-400 print:text-slate-900">
+                              <td className="py-4 px-5 text-right font-bold text-emerald-400 print:text-slate-900">
                                 R$ {grupo.subtotal.toLocaleString('pt-BR', {minimumFractionDigits: 2})}
                               </td>
                             </tr>
@@ -336,11 +358,11 @@ function App() {
                         ))}
                         
                         {/* Total Geral do Período */}
-                        <tr className="hidden print:table-row border-t-4 border-slate-900 print:border-slate-800">
-                          <td colSpan="6" className="py-6 px-4 text-right font-black text-slate-900 print:text-slate-950 text-sm uppercase">
+                        <tr className="bg-indigo-900/40 print:bg-slate-200 border-b-2 border-indigo-500/30 print:border-slate-800">
+                          <td colSpan="6" className="py-5 px-5 text-right font-bold text-white print:text-slate-900 text-xl uppercase tracking-wider">
                             Total Geral do Período
                           </td>
-                          <td className="py-6 px-4 text-right font-black text-slate-900 print:text-slate-950 text-xl">
+                          <td className="py-5 px-5 text-right font-black text-emerald-400 print:text-slate-950 text-2xl">
                             R$ {totalGeral.toLocaleString('pt-BR', {minimumFractionDigits: 2})}
                           </td>
                         </tr>
