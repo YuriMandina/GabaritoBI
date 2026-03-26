@@ -1,17 +1,19 @@
 import os
 import requests
+import traceback
 import pandas as pd
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 # 1. SEGURANÇA E SETUP
 load_dotenv()
 APP_KEY = os.getenv("OMIE_APP_KEY")
 APP_SECRET = os.getenv("OMIE_APP_SECRET")
 
-app = FastAPI(title="API GabaritoBI", version="4.0")
+app = FastAPI(title="API GabaritoBI", version="5.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -22,12 +24,22 @@ app.add_middleware(
 )
 
 
-# --- FUNÇÕES DE EXTRAÇÃO DA API OMIE  ---
+# --- MODELOS DE DADOS PARA AÇÃO ---
+class PagamentoItem(BaseModel):
+    codigo_lancamento: int
+    valor: float
+    desconto: float = 0.0
+    juros: float = 0.0
+
+
+class BaixaLoteRequest(BaseModel):
+    id_conta_corrente: int
+    data_pagamento: str
+    pagamentos: list[PagamentoItem]
+
+
+# --- FUNÇÕES DE EXTRAÇÃO DA API OMIE ---
 def extrair_contas_pagar_abertas():
-    """
-    Extrai as contas a pagar em aberto da API do Omie, paginando os resultados para garantir a obtenção de todas as contas.
-    Retorna uma lista de dicionários representando cada conta a pagar.
-    """
     url = "https://app.omie.com.br/api/v1/financas/contapagar/"
     pagina_atual, total_paginas = 1, 1
     todas_contas = []
@@ -55,6 +67,41 @@ def extrair_contas_pagar_abertas():
                 break
             total_paginas = res.get("total_de_paginas", 1)
             todas_contas.extend(res.get("conta_pagar_cadastro", []))
+        except:
+            break
+        pagina_atual += 1
+    return todas_contas
+
+
+def extrair_contas_receber_abertas():
+    """Busca todas as contas a receber em aberto (O seu Crediário/Fiado)"""
+    url = "https://app.omie.com.br/api/v1/financas/contareceber/"
+    pagina_atual, total_paginas = 1, 1
+    todas_contas = []
+    while pagina_atual <= total_paginas:
+        payload = {
+            "call": "ListarContasReceber",
+            "app_key": APP_KEY,
+            "app_secret": APP_SECRET,
+            "param": [
+                {
+                    "pagina": pagina_atual,
+                    "registros_por_pagina": 500,
+                    "filtrar_apenas_titulos_em_aberto": "S",
+                }
+            ],
+        }
+        try:
+            res = requests.post(
+                url,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=15,
+            ).json()
+            if "faultstring" in res:
+                break
+            total_paginas = res.get("total_de_paginas", 1)
+            todas_contas.extend(res.get("conta_receber_cadastro", []))
         except:
             break
         pagina_atual += 1
@@ -118,7 +165,6 @@ def extrair_dicionario_categorias():
 
 
 def extrair_dicionario_contas_correntes():
-    """Busca o nome dos bancos/contas correntes no Omie garantindo que o ID seja String"""
     url = "https://app.omie.com.br/api/v1/geral/contacorrente/"
     pagina_atual, total_paginas = 1, 1
     dicionario = {}
@@ -137,30 +183,22 @@ def extrair_dicionario_contas_correntes():
                 timeout=15,
             ).json()
             total_paginas = res.get("total_de_paginas", 1)
-
-            # A API do Omie devolve a lista de contas dentro da chave "ListarContasCorrentes"
             lista_contas = res.get("ListarContasCorrentes", [])
-
             for cc in lista_contas:
-                # O ID da conta vem como nCodCC e o nome como descricao
                 id_cc = str(cc.get("nCodCC", ""))
                 dicionario[id_cc] = cc.get("descricao", f"Conta {id_cc}")
-        except Exception as e:
-            print(f"Erro ao extrair Contas Correntes: {e}")
+        except:
             pass
         pagina_atual += 1
     return dicionario
 
 
 def extrair_movimentos_pagos_periodo(data_inicio: str, data_fim: str):
-    """Utiliza a API de Movimentos Financeiros para buscar as baixas exatas do período"""
     url = "https://app.omie.com.br/api/v1/financas/mf/"
     dt_inicio_omie = pd.to_datetime(data_inicio).strftime("%d/%m/%Y")
     dt_fim_omie = pd.to_datetime(data_fim).strftime("%d/%m/%Y")
-
     pagina_atual, total_paginas = 1, 1
     todos_movimentos = []
-
     while pagina_atual <= total_paginas:
         payload = {
             "call": "ListarMovimentos",
@@ -170,9 +208,9 @@ def extrair_movimentos_pagos_periodo(data_inicio: str, data_fim: str):
                 {
                     "nPagina": pagina_atual,
                     "nRegPorPagina": 500,
-                    "dDtPagtoDe": dt_inicio_omie,  # Filtra pela data exata do pagamento
+                    "dDtPagtoDe": dt_inicio_omie,
                     "dDtPagtoAte": dt_fim_omie,
-                    "cTpLancamento": "CP",  # Força trazer apenas Contas a Pagar
+                    "cTpLancamento": "CP",
                 }
             ],
         }
@@ -187,8 +225,7 @@ def extrair_movimentos_pagos_periodo(data_inicio: str, data_fim: str):
                 break
             total_paginas = res.get("nTotPaginas", 1)
             todos_movimentos.extend(res.get("movimentos", []))
-        except Exception as e:
-            print(f"Erro na paginação Omie (MF): {e}")
+        except:
             break
         pagina_atual += 1
     return todos_movimentos
@@ -200,13 +237,20 @@ def tratar_vazio(valor):
     return str(valor)
 
 
+# --- ENDPOINTS ---
+@app.get("/api/geral/bancos")
+def obter_bancos():
+    dict_contas = extrair_dicionario_contas_correntes()
+    bancos = [{"id": k, "nome": v} for k, v in dict_contas.items()]
+    return sorted(bancos, key=lambda x: x["nome"])
+
+
 @app.get("/api/relatorios/contas-a-pagar/dados")
 def obter_dados_tela(data_inicio: str, data_fim: str):
     try:
         dict_fornecedores = extrair_dicionario_fornecedores()
         dict_categorias = extrair_dicionario_categorias()
 
-        # --- BLINDAGEM DE TIPAGEM PARA O CONTAS A PAGAR ---
         dict_forn_str = {str(k): v for k, v in dict_fornecedores.items()}
         dict_cat_str = {str(k): v for k, v in dict_categorias.items()}
 
@@ -248,10 +292,6 @@ def obter_dados_tela(data_inicio: str, data_fim: str):
             "%d/%m/%Y"
         )
 
-        if "status_titulo" not in df_contas.columns:
-            df_contas["status_titulo"] = "-"
-
-        # Filtro de datas
         inicio_dt = pd.to_datetime(data_inicio)
         fim_dt = pd.to_datetime(data_fim)
         mask_periodo = (df_contas["data_previsao_dt"] >= inicio_dt) & (
@@ -261,30 +301,21 @@ def obter_dados_tela(data_inicio: str, data_fim: str):
 
         if df_abertos.empty:
             return JSONResponse(content={"total": 0.0, "contas": []})
-
         df_abertos = df_abertos.sort_values(by="data_previsao_dt")
         total = float(df_abertos["saldo_devedor"].sum())
 
         contas_lista = []
         for _, row in df_abertos.iterrows():
-
-            # --- LIMPEZA DO PANDAS ---
-            # Remove o ".0" fantasma que o Pandas coloca em colunas com IDs vazios
             val_forn = row.get("codigo_cliente_fornecedor")
             id_forn = ""
             if pd.notna(val_forn) and str(val_forn).strip() not in ["", "nan", "None"]:
                 try:
-                    # int(float(123.0)) -> 123 -> "123"
                     id_forn = str(int(float(val_forn)))
                 except:
                     id_forn = str(val_forn).strip()
 
             val_cat = row.get("codigo_categoria")
             id_cat = str(val_cat).strip() if pd.notna(val_cat) else ""
-
-            # Cruzamento perfeito garantido
-            nome_fornecedor = dict_forn_str.get(id_forn, tratar_vazio(val_forn))
-            desc_categoria = dict_cat_str.get(id_cat, tratar_vazio(val_cat))
 
             contas_lista.append(
                 {
@@ -294,18 +325,15 @@ def obter_dados_tela(data_inicio: str, data_fim: str):
                         row.get("numero_documento_fiscal")
                     ),
                     "numero_parcela": tratar_vazio(row.get("numero_parcela")),
-                    "nome_fornecedor": nome_fornecedor,
-                    "desc_categoria": desc_categoria,
-                    "status_titulo": tratar_vazio(row.get("status_titulo")),
+                    "nome_fornecedor": dict_forn_str.get(
+                        id_forn, tratar_vazio(val_forn)
+                    ),
+                    "desc_categoria": dict_cat_str.get(id_cat, tratar_vazio(val_cat)),
                     "saldo_devedor": float(row.get("saldo_devedor", 0.0)),
                 }
             )
-
         return JSONResponse(content={"total": total, "contas": contas_lista})
-
     except Exception as e:
-        import traceback
-
         traceback.print_exc()
         return JSONResponse(
             status_code=500, content={"detail": f"Falha no Backend: {e}"}
@@ -319,9 +347,6 @@ def obter_dados_contas_pagas(data_inicio: str, data_fim: str):
         dict_categorias = extrair_dicionario_categorias()
         dict_contas = extrair_dicionario_contas_correntes()
 
-        # --- A BLINDAGEM DE TIPAGEM ---
-        # Força as chaves dos dicionários a serem texto (string) para garantir o cruzamento,
-        # sem quebrar as outras rotas do sistema!
         dict_forn_str = {str(k): v for k, v in dict_fornecedores.items()}
         dict_cat_str = {str(k): v for k, v in dict_categorias.items()}
 
@@ -335,17 +360,14 @@ def obter_dados_contas_pagas(data_inicio: str, data_fim: str):
         for mov in movimentos_brutos:
             det = mov.get("detalhes", {})
             res = mov.get("resumo", {})
-
             valor = float(res.get("nValPago", 0.0))
             if valor <= 0:
                 continue
 
-            # Pega os IDs originais do Omie
             id_forn_orig = det.get("nCodCliente")
             id_cat_orig = det.get("cCodCateg")
             id_conta_orig = det.get("nCodCC")
 
-            # Transforma todos em string de forma segura para a busca
             id_fornecedor = str(id_forn_orig) if id_forn_orig else ""
             id_categoria = str(id_cat_orig) if id_cat_orig else ""
             id_conta = str(id_conta_orig) if id_conta_orig else ""
@@ -356,7 +378,6 @@ def obter_dados_contas_pagas(data_inicio: str, data_fim: str):
                     "data_emissao": tratar_vazio(det.get("dDtEmissao")),
                     "numero_documento_fiscal": tratar_vazio(det.get("cNumDocFiscal")),
                     "numero_parcela": tratar_vazio(det.get("cNumParcela")),
-                    # Busca no dicionário blindado (Texto procurando Texto)
                     "nome_fornecedor": dict_forn_str.get(
                         id_fornecedor, tratar_vazio(id_forn_orig)
                     ),
@@ -379,13 +400,114 @@ def obter_dados_contas_pagas(data_inicio: str, data_fim: str):
                 else pd.Timestamp.min
             ),
         )
-
         return JSONResponse(content={"total": total_pago, "contas": contas_lista})
-
     except Exception as e:
-        import traceback
-
         traceback.print_exc()
         return JSONResponse(
             status_code=500, content={"detail": f"Falha no Backend: {e}"}
         )
+
+
+@app.get("/api/relatorios/recebimentos/dados")
+def obter_recebimentos_abertos():
+    try:
+        dict_clientes = extrair_dicionario_fornecedores()
+        dict_categorias = extrair_dicionario_categorias()
+        dict_contas = extrair_dicionario_contas_correntes()
+
+        dict_cli_str = {str(k): v for k, v in dict_clientes.items()}
+        dict_cat_str = {str(k): v for k, v in dict_categorias.items()}
+
+        contas_brutas = extrair_contas_receber_abertas()
+        if not contas_brutas:
+            return JSONResponse(content={"total": 0.0, "contas": []})
+
+        contas_lista = []
+        total = 0.0
+
+        for c in contas_brutas:
+            id_cli = str(c.get("codigo_cliente_fornecedor", ""))
+            id_cat = str(c.get("codigo_categoria", ""))
+            id_conta = str(c.get("id_conta_corrente", ""))
+
+            nome_cli = dict_cli_str.get(id_cli, tratar_vazio(id_cli))
+            desc_cat = dict_cat_str.get(id_cat, tratar_vazio(id_cat))
+            nome_conta = dict_contas.get(id_conta, f"Conta {id_conta}")
+
+            saldo = float(c.get("valor_documento", 0.0))
+
+            contas_lista.append(
+                {
+                    "codigo_lancamento": c.get("codigo_lancamento_omie"),
+                    "data_previsao_br": tratar_vazio(c.get("data_vencimento")),
+                    "data_emissao": tratar_vazio(c.get("data_emissao")),
+                    "numero_documento_fiscal": tratar_vazio(
+                        c.get("numero_documento_fiscal")
+                    ),
+                    "numero_parcela": tratar_vazio(c.get("numero_parcela")),
+                    "nome_cliente": nome_cli,
+                    "nome_fornecedor": nome_cli,  # Fallback visual para a tabela React
+                    "desc_categoria": desc_cat,
+                    "conta_corrente": nome_conta,
+                    "saldo_devedor": saldo,
+                }
+            )
+            total += saldo
+
+        contas_lista = sorted(
+            contas_lista,
+            key=lambda x: (
+                pd.to_datetime(
+                    x["data_previsao_br"], format="%d/%m/%Y", errors="coerce"
+                )
+                if x["data_previsao_br"] != "-"
+                else pd.Timestamp.min
+            ),
+        )
+        return JSONResponse(content={"total": total, "contas": contas_lista})
+    except Exception as e:
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"detail": str(e)})
+
+
+@app.post("/api/relatorios/recebimentos/baixar")
+def baixar_recebimento_lote(req: BaixaLoteRequest):
+    """Efetua a baixa de múltiplas notas aplicando juros e descontos proporcionais"""
+    url = "https://app.omie.com.br/api/v1/financas/contareceber/"
+    erros = []
+
+    for pag in req.pagamentos:
+        payload = {
+            "call": "LancarRecebimento",
+            "app_key": APP_KEY,
+            "app_secret": APP_SECRET,
+            "param": [
+                {
+                    "codigo_lancamento": pag.codigo_lancamento,
+                    "codigo_conta_corrente": req.id_conta_corrente,
+                    "valor": pag.valor,  # Valor líquido pago nesta nota
+                    "desconto": pag.desconto,  # Desconto proporcional
+                    "juros": pag.juros,  # Juros proporcional
+                    "data": req.data_pagamento,
+                    "observacao": "Baixa em Lote c/ Rateio via GabaritoBI",
+                }
+            ],
+        }
+        try:
+            res = requests.post(
+                url, json=payload, headers={"Content-Type": "application/json"}
+            ).json()
+            if "faultstring" in res:
+                erros.append(
+                    f"Erro na nota {pag.codigo_lancamento}: {res['faultstring']}"
+                )
+        except Exception as e:
+            erros.append(f"Erro na comunicação: {str(e)}")
+
+    if erros:
+        # Se houve erro em alguma nota, devolvemos a lista de erros para o painel
+        return JSONResponse(status_code=400, content={"detail": " | ".join(erros)})
+
+    return JSONResponse(
+        content={"status": "success", "mensagem": "Recebimentos em lote registrados!"}
+    )
