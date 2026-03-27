@@ -1,9 +1,9 @@
 import os
-import time  # NOVO: Para controlar o rate limit
+import time  # Para controlar o rate limit
 import requests
 import traceback
 import pandas as pd
-from datetime import datetime, timedelta  # NOVO: Para controlar o tempo do cache
+from datetime import datetime, timedelta  # Para controlar o tempo do cache
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,7 +26,6 @@ app.add_middleware(
 )
 
 # --- SISTEMA DE CACHE EM MEMÓRIA (60 SEGUNDOS) ---
-# Evita requisições redundantes e o bloqueio de 30 minutos (HTTP 425)
 API_CACHE = {}
 
 
@@ -58,13 +57,28 @@ class BaixaLoteRequest(BaseModel):
     pagamentos: list[PagamentoItem]
 
 
+# --- FUNÇÕES DE UTILIDADE ---
+def tratar_vazio(valor):
+    if pd.isna(valor) or str(valor).strip().lower() in ["", "nan", "none", "nat"]:
+        return "-"
+    return str(valor)
+
+
+# BLINDAGEM MATEMÁTICA: Converte com segurança qualquer formato que a API devolver
+def safe_float(valor):
+    try:
+        if valor is None or str(valor).strip() == "":
+            return 0.0
+        return float(valor)
+    except (ValueError, TypeError):
+        return 0.0
+
+
 # --- FUNÇÕES DE EXTRAÇÃO DA API OMIE ---
 def extrair_contas_pagar_abertas():
-    """Busca todos os títulos em aberto no Omie, utilizando cache para evitar bloqueios e lentidão."""
     cache_key = "contas_pagar_abertas_geral"
     dados_cacheados = get_from_cache(cache_key)
 
-    # Se os dados foram buscados há menos de 2 minutos, devolve da memória na hora!
     if dados_cacheados:
         return dados_cacheados
 
@@ -80,7 +94,7 @@ def extrair_contas_pagar_abertas():
             "param": [
                 {
                     "pagina": pagina_atual,
-                    "registros_por_pagina": 100,  # Limite oficial da Omie
+                    "registros_por_pagina": 100,
                     "filtrar_apenas_titulos_em_aberto": "S",
                 }
             ],
@@ -92,7 +106,6 @@ def extrair_contas_pagar_abertas():
                 headers={"Content-Type": "application/json"},
                 timeout=15,
             ).json()
-            # Se o Omie retornar erro de redundância ou qualquer outro, paramos o loop
             if "faultstring" in res:
                 break
             total_paginas = res.get("total_de_paginas", 1)
@@ -101,15 +114,13 @@ def extrair_contas_pagar_abertas():
             break
 
         pagina_atual += 1
-        time.sleep(0.3)  # Pausa de segurança
+        time.sleep(0.3)
 
-    # Salva na memória por 120 segundos (2 minutos)
     set_to_cache(cache_key, todas_contas, tempo_segundos=120)
     return todas_contas
 
 
 def extrair_contas_receber_abertas():
-    """Busca todas as contas a receber em aberto (O seu Crediário/Fiado) com Cache."""
     cache_key = "contas_receber_abertas_geral"
     dados_cacheados = get_from_cache(cache_key)
 
@@ -150,12 +161,8 @@ def extrair_contas_receber_abertas():
         pagina_atual += 1
         time.sleep(0.3)
 
-    # Salva na memória por 120 segundos (2 minutos)
     set_to_cache(cache_key, todas_contas, tempo_segundos=120)
     return todas_contas
-
-
-# --- FUNÇÕES DE EXTRAÇÃO DA API OMIE ---
 
 
 def extrair_dicionario_fornecedores():
@@ -172,9 +179,7 @@ def extrair_dicionario_fornecedores():
             "call": "ListarClientes",
             "app_key": APP_KEY,
             "app_secret": APP_SECRET,
-            "param": [
-                {"pagina": pagina_atual, "registros_por_pagina": 100}
-            ],  # REGRA ATUALIZADA
+            "param": [{"pagina": pagina_atual, "registros_por_pagina": 100}],
         }
         try:
             res = requests.post(
@@ -191,7 +196,7 @@ def extrair_dicionario_fornecedores():
         except:
             break
         pagina_atual += 1
-        time.sleep(0.3)  # REGRA ATUALIZADA: Respeitando limite de req/seg
+        time.sleep(0.3)
 
     set_to_cache(cache_key, dicionario)
     return dicionario
@@ -211,9 +216,7 @@ def extrair_dicionario_categorias():
             "call": "ListarCategorias",
             "app_key": APP_KEY,
             "app_secret": APP_SECRET,
-            "param": [
-                {"pagina": pagina_atual, "registros_por_pagina": 100}
-            ],  # REGRA ATUALIZADA
+            "param": [{"pagina": pagina_atual, "registros_por_pagina": 100}],
         }
         try:
             res = requests.post(
@@ -228,7 +231,7 @@ def extrair_dicionario_categorias():
         except:
             break
         pagina_atual += 1
-        time.sleep(0.3)  # REGRA ATUALIZADA
+        time.sleep(0.3)
 
     set_to_cache(cache_key, dicionario)
     return dicionario
@@ -248,9 +251,7 @@ def extrair_dicionario_contas_correntes():
             "call": "ListarContasCorrentes",
             "app_key": APP_KEY,
             "app_secret": APP_SECRET,
-            "param": [
-                {"pagina": pagina_atual, "registros_por_pagina": 100}
-            ],  # REGRA ATUALIZADA
+            "param": [{"pagina": pagina_atual, "registros_por_pagina": 100}],
         }
         try:
             res = requests.post(
@@ -267,14 +268,13 @@ def extrair_dicionario_contas_correntes():
         except:
             break
         pagina_atual += 1
-        time.sleep(0.3)  # REGRA ATUALIZADA
+        time.sleep(0.3)
 
     set_to_cache(cache_key, dicionario)
     return dicionario
 
 
 def extrair_movimentos_pagos_periodo(data_inicio: str, data_fim: str):
-    # A chave do cache precisa ter as datas para não misturar os relatórios
     cache_key = f"mov_pagos_{data_inicio}_{data_fim}"
     dados_cacheados = get_from_cache(cache_key)
 
@@ -321,12 +321,6 @@ def extrair_movimentos_pagos_periodo(data_inicio: str, data_fim: str):
 
     set_to_cache(cache_key, todos_movimentos, tempo_segundos=120)
     return todos_movimentos
-
-
-def tratar_vazio(valor):
-    if pd.isna(valor) or str(valor).strip().lower() in ["", "nan", "none", "nat"]:
-        return "-"
-    return str(valor)
 
 
 # --- ENDPOINTS ---
@@ -449,10 +443,31 @@ def obter_dados_contas_pagas(data_inicio: str, data_fim: str):
         contas_lista = []
         total_pago = 0.0
 
+        # VARIÁVEL DE CONTROLE: Armazena os IDs para evitar apenas a duplicidade de paginação
+        movimentos_vistos = set()
+
         for mov in movimentos_brutos:
             det = mov.get("detalhes", {})
             res = mov.get("resumo", {})
-            valor = float(res.get("nValPago", 0.0))
+
+            # Ignora cancelados
+            status_mov = str(det.get("cStatus", "")).upper()
+            if status_mov in ["CANCELADO", "EXCLUIDO", "ESTORNADO"]:
+                continue
+
+            # ATUALIZAÇÃO: Só filtra por nCodMovCC se ele existir. Se não existir, deixa passar!
+            id_mov = det.get("nCodMovCC")
+            if id_mov:
+                if id_mov in movimentos_vistos:
+                    continue
+                movimentos_vistos.add(id_mov)
+
+            # LÓGICA DE VALOR HÍBRIDA (FALLBACK COM BLINDAGEM SAFE_FLOAT):
+            valor_mov = abs(safe_float(det.get("nValorMovCC")))
+            valor_pago_resumo = safe_float(res.get("nValPago"))
+
+            valor = valor_mov if valor_mov > 0 else valor_pago_resumo
+
             if valor <= 0:
                 continue
 
@@ -518,11 +533,8 @@ def obter_recebimentos_abertos():
         total = 0.0
 
         for c in contas_brutas:
-            # --- TRAVA DEFINITIVA: APENAS CREDIÁRIO ---
-            # Padronizamos para maiúsculo e removemos espaços acidentais
             tipo_doc = str(c.get("codigo_tipo_documento", "")).strip().upper()
 
-            # Se não for 'CRE', ignoramos e pulamos para o próximo título
             if tipo_doc != "CRE":
                 continue
 
@@ -536,7 +548,6 @@ def obter_recebimentos_abertos():
 
             saldo = float(c.get("valor_documento", 0.0))
 
-            # Capturando a hora exata da inclusão da nota
             info_registro = c.get("info", {})
             hora_exata = info_registro.get("hInc", "00:00:00")
 
@@ -578,7 +589,6 @@ def obter_recebimentos_abertos():
 
 @app.post("/api/relatorios/recebimentos/baixar")
 def baixar_recebimento_lote(req: BaixaLoteRequest):
-    """Efetua a baixa de múltiplas notas aplicando juros e descontos proporcionais"""
     url = "https://app.omie.com.br/api/v1/financas/contareceber/"
     erros = []
 
@@ -593,9 +603,9 @@ def baixar_recebimento_lote(req: BaixaLoteRequest):
                 {
                     "codigo_lancamento": pag.codigo_lancamento,
                     "codigo_conta_corrente": req.id_conta_corrente,
-                    "valor": pag.valor,  # Valor líquido pago nesta nota
-                    "desconto": pag.desconto,  # Desconto proporcional
-                    "juros": pag.juros,  # Juros proporcional
+                    "valor": pag.valor,
+                    "desconto": pag.desconto,
+                    "juros": pag.juros,
                     "data": req.data_pagamento,
                     "observacao": "Baixa em Lote c/ Rateio via GabaritoBI",
                 }
@@ -613,7 +623,6 @@ def baixar_recebimento_lote(req: BaixaLoteRequest):
             erros.append(f"Erro na comunicação: {str(e)}")
 
     if erros:
-        # Se houve erro em alguma nota, devolvemos a lista de erros para o painel
         return JSONResponse(status_code=400, content={"detail": " | ".join(erros)})
 
     return JSONResponse(

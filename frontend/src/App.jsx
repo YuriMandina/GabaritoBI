@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { 
   LayoutDashboard, FileText, TrendingUp, Users, Search, CalendarDays, 
   Loader2, Database, Printer, Filter, CreditCard, CheckCircle, 
-  CheckSquare, Square, Calculator
+  CheckSquare, Square, Calculator, Zap, ArrowDownToLine
 } from 'lucide-react';
 
 function App() {
@@ -19,13 +19,24 @@ function App() {
   const [listaBancos, setListaBancos] = useState([]);
   const [selecionados, setSelecionados] = useState([]); 
   const [modalBaixa, setModalBaixa] = useState({ aberto: false, cliente: '', contas: [] });
-  const [contaDestino, setContaDestino] = useState('');
-  const [dataPagamento, setDataPagamento] = useState('');
   
-  const [descontoTipo, setDescontoTipo] = useState('VALOR');
-  const [descontoValor, setDescontoValor] = useState('');
-  const [jurosTipo, setJurosTipo] = useState('VALOR');
-  const [jurosValor, setJurosValor] = useState('');
+  const getHojeBR = () => {
+    const d = new Date();
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().split('T')[0];
+  };
+
+  const [contaDestino, setContaDestino] = useState('');
+  const [dataPagamento, setDataPagamento] = useState(getHojeBR());
+  
+  const [detalhesPagamento, setDetalhesPagamento] = useState({});
+  
+  const [descGlobalTipo, setDescGlobalTipo] = useState('PERCENTUAL');
+  const [descGlobalValor, setDescGlobalValor] = useState('');
+  const [jurosGlobalTipo, setJurosGlobalTipo] = useState('VALOR');
+  const [jurosGlobalValor, setJurosGlobalValor] = useState('');
+  
+  const [valorTotalRecebido, setValorTotalRecebido] = useState('');
   
   const [processandoBaixa, setProcessandoBaixa] = useState(false);
   const [reciboGerado, setReciboGerado] = useState(null);
@@ -38,7 +49,7 @@ function App() {
     return datasUnicas.map(data => {
       const contasDoDia = contas.filter(c => c[campoData] === data);
       const subtotal = contasDoDia.reduce((acc, c) => acc + c[campoValor], 0);
-      return { dataReferencia: data, contas: contasDoDia, subtotal };
+      return { dataReferencia: data, contas: contasDoDia, subtotal }; 
     });
   };
 
@@ -120,46 +131,160 @@ function App() {
       alert("Selecione pelo menos uma nota deste cliente para receber!");
       return;
     }
-    setDescontoValor(''); setJurosValor('');
-    setDescontoTipo('VALOR'); setJurosTipo('VALOR');
-    setDataPagamento(new Date().toISOString().split('T')[0]); 
+    
+    setDescGlobalValor('');
+    setJurosGlobalValor('');
+    setValorTotalRecebido('');
+    setDescGlobalTipo('PERCENTUAL');
+    setJurosGlobalTipo('VALOR');
+
+    const detalhesIniciais = {};
+    selecionadasDoCliente.forEach(conta => {
+      detalhesIniciais[conta.codigo_lancamento] = {
+        valor: conta.saldo_devedor,
+        desconto: 0,
+        juros: 0
+      };
+    });
+    
+    setDetalhesPagamento(detalhesIniciais);
+    setDataPagamento(getHojeBR()); 
     setModalBaixa({ aberto: true, cliente: cliente, contas: selecionadasDoCliente });
   };
 
-  const calcularRateio = () => {
-    const totalOriginal = modalBaixa.contas.reduce((acc, c) => acc + c.saldo_devedor, 0);
-    let dVal = descontoTipo === 'VALOR' ? parseFloat(descontoValor || 0) : totalOriginal * (parseFloat(descontoValor || 0) / 100);
-    let jVal = jurosTipo === 'VALOR' ? parseFloat(jurosValor || 0) : totalOriginal * (parseFloat(jurosValor || 0) / 100);
-    if (dVal > totalOriginal) dVal = totalOriginal; 
+  const converterDataBrParaDate = (dataStr) => {
+    if (!dataStr || dataStr === '-') return new Date(9999, 11, 31);
+    const partes = dataStr.split('/');
+    return new Date(partes[2], partes[1] - 1, partes[0]);
+  };
 
-    const pagamentosTratados = modalBaixa.contas.map(c => {
+  const aplicarRateioGlobal = () => {
+    const totalOriginal = modalBaixa.contas.reduce((acc, c) => acc + c.saldo_devedor, 0);
+    
+    let dValGlobal = descGlobalTipo === 'VALOR' ? parseFloat(descGlobalValor || 0) : 0;
+    let jValGlobal = jurosGlobalTipo === 'VALOR' ? parseFloat(jurosGlobalValor || 0) : 0;
+    let pDesc = descGlobalTipo === 'PERCENTUAL' ? parseFloat(descGlobalValor || 0) / 100 : 0;
+    let pJuros = jurosGlobalTipo === 'PERCENTUAL' ? parseFloat(jurosGlobalValor || 0) / 100 : 0;
+
+    if (descGlobalTipo === 'VALOR' && dValGlobal > totalOriginal) dValGlobal = totalOriginal;
+
+    let poolDinheiroRecebido = parseFloat(valorTotalRecebido);
+    const aplicarCascata = !isNaN(poolDinheiroRecebido) && poolDinheiroRecebido > 0;
+
+    const contasOrdenadas = [...modalBaixa.contas].sort((a, b) => {
+      return converterDataBrParaDate(a.data_previsao_br) - converterDataBrParaDate(b.data_previsao_br);
+    });
+
+    const novosDetalhes = { ...detalhesPagamento };
+
+    contasOrdenadas.forEach(c => {
+      let descDaNota = 0;
+      let jurosDaNota = 0;
+      let valorPagoNestaNota = 0;
+
+      if (aplicarCascata && poolDinheiroRecebido <= 0) {
+        novosDetalhes[c.codigo_lancamento] = { desconto: 0, juros: 0, valor: 0 };
+        return; 
+      }
+
       const peso = c.saldo_devedor / totalOriginal;
-      const descProporcional = Number((dVal * peso).toFixed(2));
-      const jurosProporcional = Number((jVal * peso).toFixed(2));
-      const valorPagar = Number((c.saldo_devedor - descProporcional + jurosProporcional).toFixed(2));
-      
-      return {
-        codigo_lancamento: c.codigo_lancamento,
-        valor: valorPagar,
-        desconto: descProporcional,
-        juros: jurosProporcional,
-        contaOriginal: c
+      let descFull = descGlobalTipo === 'PERCENTUAL' ? c.saldo_devedor * pDesc : dValGlobal * peso;
+      let jurosFull = jurosGlobalTipo === 'PERCENTUAL' ? c.saldo_devedor * pJuros : jValGlobal * peso;
+      let valorLiquidoFull = c.saldo_devedor - descFull + jurosFull;
+
+      if (aplicarCascata) {
+        if (poolDinheiroRecebido >= valorLiquidoFull) {
+          valorPagoNestaNota = valorLiquidoFull;
+          descDaNota = descFull;
+          jurosDaNota = jurosFull;
+          poolDinheiroRecebido -= valorLiquidoFull; 
+        } else {
+          valorPagoNestaNota = poolDinheiroRecebido;
+          poolDinheiroRecebido = 0; 
+          
+          const proporcaoMassaMaga = valorPagoNestaNota / valorLiquidoFull;
+          descDaNota = descFull * proporcaoMassaMaga;
+          jurosDaNota = jurosFull * proporcaoMassaMaga;
+        }
+      } else {
+        valorPagoNestaNota = valorLiquidoFull;
+        descDaNota = descFull;
+        jurosDaNota = jurosFull;
+      }
+
+      novosDetalhes[c.codigo_lancamento] = {
+        desconto: Number(descDaNota.toFixed(2)),
+        juros: Number(jurosDaNota.toFixed(2)),
+        valor: Number(valorPagoNestaNota.toFixed(2))
       };
     });
-    const totalAposRateio = pagamentosTratados.reduce((acc, p) => acc + p.valor, 0);
-    return { pagamentos: pagamentosTratados, totalOriginal, totalFinal: totalAposRateio, dVal, jVal };
+
+    setDetalhesPagamento(novosDetalhes);
+  };
+
+  const handleAlterarDetalhe = (codigoLancamento, campo, valorDigitado) => {
+    setDetalhesPagamento(prev => ({
+      ...prev,
+      [codigoLancamento]: {
+        ...prev[codigoLancamento],
+        [campo]: valorDigitado === '' ? '' : Number(valorDigitado)
+      }
+    }));
+  };
+
+  const calcularTotaisModal = () => {
+    let totalPago = 0;
+    let totalOriginal = 0;
+    let totalDesconto = 0;
+    let totalJuros = 0;
+
+    modalBaixa.contas.forEach(c => {
+      totalOriginal += c.saldo_devedor;
+      const det = detalhesPagamento[c.codigo_lancamento];
+      if (det) {
+        totalPago += Number(det.valor || 0);
+        totalDesconto += Number(det.desconto || 0);
+        totalJuros += Number(det.juros || 0);
+      }
+    });
+
+    return { totalOriginal, totalPago, totalDesconto, totalJuros };
   };
 
   const handleEfetuarBaixaLote = async () => {
     setProcessandoBaixa(true);
+    
+    const hojeStr = getHojeBR();
+    if (dataPagamento > hojeStr) {
+      alert("Operação Negada: Não é permitido registrar pagamentos com data futura. Ajuste a data para hoje ou um dia anterior.");
+      setProcessandoBaixa(false);
+      return;
+    }
+
     try {
-      const { pagamentos, totalOriginal, totalFinal, dVal, jVal } = calcularRateio();
       const [ano, mes, dia] = dataPagamento.split('-');
       
+      const pagamentosTratados = modalBaixa.contas.map(c => {
+        const det = detalhesPagamento[c.codigo_lancamento] || { valor: 0, desconto: 0, juros: 0 };
+        return {
+          codigo_lancamento: c.codigo_lancamento,
+          valor: Number(det.valor || 0),
+          desconto: Number(det.desconto || 0),
+          juros: Number(det.juros || 0),
+          contaOriginal: c
+        };
+      }).filter(p => p.valor > 0);
+
+      if (pagamentosTratados.length === 0) {
+         alert("Não há valores a receber informados nas notas.");
+         setProcessandoBaixa(false);
+         return;
+      }
+
       const payload = {
         id_conta_corrente: parseInt(contaDestino),
         data_pagamento: `${dia}/${mes}/${ano}`,
-        pagamentos: pagamentos.map(p => ({
+        pagamentos: pagamentosTratados.map(p => ({
           codigo_lancamento: p.codigo_lancamento,
           valor: p.valor,
           desconto: p.desconto,
@@ -174,22 +299,26 @@ function App() {
       });
       
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Erro no rateio de notas.");
+      if (!res.ok) throw new Error(data.detail || "Erro ao processar as notas.");
       
       const bancoSelecionado = listaBancos.find(b => b.id === contaDestino)?.nome;
+      const totais = calcularTotaisModal();
       
       setReciboGerado({
         cliente: modalBaixa.cliente,
         banco: bancoSelecionado,
         data_pagamento: `${dia}/${mes}/${ano}`,
-        totalOriginal, totalDesconto: dVal, totalJuros: jVal, totalPago: totalFinal,
-        notas: pagamentos
+        totalOriginal: totais.totalOriginal, 
+        totalDesconto: totais.totalDesconto, 
+        totalJuros: totais.totalJuros, 
+        totalPago: totais.totalPago,
+        notas: pagamentosTratados
       });
       
       setModalBaixa({aberto: false, cliente: '', contas: []});
       handleBuscarDados(); 
     } catch (e) {
-      alert("Erro ao receber lote: " + e.message);
+      alert("Erro ao receber valores: " + e.message);
     } finally {
       setProcessandoBaixa(false);
     }
@@ -232,9 +361,9 @@ function App() {
     return [...new Set(contasBrutas.map(c => c.conta_corrente))].sort();
   }, [contasBrutas, menuAtivo]);
 
-  const tituloModulo = menuAtivo === 'contas-pagas' ? 'Módulo de Contas Pagas' : menuAtivo === 'recebimentos' ? 'Crediário e Fiado' : 'Módulo de Contas a Pagar';
-  const descModulo = menuAtivo === 'contas-pagas' ? 'Sincronize as baixas realizadas e concilie contas correntes.' : menuAtivo === 'recebimentos' ? 'Acompanhe faturas, aplique descontos proporcionais e gere recibos em lote.' : 'Sincronize os dados e imprima o relatório detalhado.';
-  const tituloRelatorio = menuAtivo === 'contas-pagas' ? 'Pagamentos Realizados' : menuAtivo === 'recebimentos' ? 'Títulos a Receber' : 'Previsão de Pagamentos';
+  const tituloModulo = menuAtivo === 'contas-pagas' ? 'Módulo de Contas Pagas' : menuAtivo === 'recebimentos' ? 'Módulo de Convênios' : 'Módulo de Contas a Pagar';
+  const descModulo = menuAtivo === 'contas-pagas' ? 'Sincronize as baixas realizadas e concilie contas correntes.' : menuAtivo === 'recebimentos' ? 'Acompanhe faturas de convênios, edite pagamentos parciais e gere recibos.' : 'Sincronize os dados e imprima o relatório detalhado.';
+  const tituloRelatorio = menuAtivo === 'contas-pagas' ? 'Pagamentos Realizados' : menuAtivo === 'recebimentos' ? 'Títulos a Receber (Convênio)' : 'Previsão de Pagamentos';
 
   const SidebarItem = ({ id, icone: Icon, texto }) => (
     <button onClick={() => { setMenuAtivo(id); setContasBrutas([]); setSelecionados([]); setClienteFiltro(''); setContaFiltro('TODAS'); }}
@@ -279,7 +408,7 @@ function App() {
           <SidebarItem id="dashboard" icone={LayoutDashboard} texto="Visão Geral" />
           <SidebarItem id="contas-pagar" icone={FileText} texto="Contas a Pagar (Previsão)" />
           <SidebarItem id="contas-pagas" icone={Database} texto="Contas Pagas (Realizado)" />
-          <SidebarItem id="recebimentos" icone={CreditCard} texto="Contas a Receber (Fiado)" />
+          <SidebarItem id="recebimentos" icone={CreditCard} texto="Contas a Receber (Convênio)" />
           <SidebarItem id="vendas" icone={TrendingUp} texto="Análise de Vendas" />
         </nav>
       </aside>
@@ -393,7 +522,6 @@ function App() {
                     <div className="space-y-8">
                       {dadosAgrupados.map((grupo, gIdx) => {
                         const selecionadasDoCliente = grupo.contas.filter(c => selecionados.find(s => s.codigo_lancamento === c.codigo_lancamento));
-                        const totalSelecionado = selecionadasDoCliente.reduce((acc, c) => acc + c.saldo_devedor, 0);
                         const todasSelecionadas = grupo.contas.every(c => selecionados.find(s => s.codigo_lancamento === c.codigo_lancamento));
 
                         return (
@@ -418,18 +546,18 @@ function App() {
                             <div className="overflow-x-auto print:overflow-visible">
                               <table className="w-full text-left border-collapse whitespace-nowrap">
                                 <thead>
+                                  {/* AJUSTE DE LARGURA: Tabelas de Convênios */}
                                   <tr className="bg-slate-800/30 text-slate-300 print:bg-slate-50 print:text-slate-900 text-xs font-bold border-b border-slate-700/50 print:border-slate-300">
                                     <th className="py-3 px-5 print:hidden w-10">
                                       <button onClick={() => toggleTodosCliente(grupo.contas)} className="text-slate-400 hover:text-indigo-400">
                                         {todasSelecionadas ? <CheckSquare size={18} className="text-indigo-400" /> : <Square size={18} />}
                                       </button>
                                     </th>
-                                    <th className="py-3 px-5">Emissão</th>
-                                    <th className="py-3 px-5 text-indigo-300">Hora</th>
-                                    <th className="py-3 px-5">Vencimento</th>
-                                    <th className="py-3 px-5">Nota / Parcela</th>
-                                    <th className="py-3 px-5">Conta Corrente</th>
-                                    <th className="py-3 px-5 text-right">Valor</th>
+                                    <th className="py-3 px-5 w-24">Emissão</th>
+                                    <th className="py-3 px-5 w-24">Vencimento</th>
+                                    <th className="py-3 px-5 w-1/4 min-w-[150px]">Nota / Parcela</th>
+                                    <th className="py-3 px-5 w-1/3 min-w-[200px]">Conta Corrente</th>
+                                    <th className="py-3 px-5 text-right w-32">Valor</th>
                                   </tr>
                                 </thead>
                                 <tbody className="text-sm">
@@ -441,13 +569,9 @@ function App() {
                                           {taSelecionado ? <CheckSquare size={18} className="text-indigo-400" /> : <Square size={18} className="text-slate-500" />}
                                         </td>
                                         <td className="py-3 px-5 text-slate-300 print:text-slate-800">{conta.data_emissao}</td>
-                                        
-                                        {/* NOVA CÉLULA EXIBINDO A HORA COM FONTE MONOESPAÇADA E COR DESTACADA */}
-                                        <td className="py-3 px-5 font-mono text-xs text-indigo-400 print:text-slate-600">{conta.hora_emissao}</td> 
-                                        
                                         <td className="py-3 px-5 text-slate-300 print:text-slate-800">{conta.data_previsao_br}</td>
                                         <td className="py-3 px-5 text-slate-300 print:text-slate-800">{conta.numero_documento_fiscal} - {conta.numero_parcela}</td>
-                                        <td className="py-3 px-5 text-slate-400 print:text-slate-600">{conta.conta_corrente}</td>
+                                        <td className="py-3 px-5 text-slate-400 print:text-slate-600 truncate max-w-[200px]">{conta.conta_corrente}</td>
                                         <td className="py-3 px-5 text-right font-medium text-slate-200 print:text-slate-900">
                                           R$ {conta.saldo_devedor.toLocaleString('pt-BR', {minimumFractionDigits: 2})}
                                         </td>
@@ -467,7 +591,7 @@ function App() {
                                 disabled={selecionadasDoCliente.length === 0}
                                 className="bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-500 text-white px-6 py-2 rounded-lg font-bold shadow-lg transition-all flex items-center gap-2"
                               >
-                                <Calculator size={18} /> RECEBER R$ {totalSelecionado.toLocaleString('pt-BR', {minimumFractionDigits: 2})}
+                                <Calculator size={18} /> INFORMAR PAGAMENTO
                               </button>
                             </div>
                           </div>
@@ -477,7 +601,7 @@ function App() {
                   ) : (
                     <div className="bg-white/[0.02] print:bg-transparent backdrop-blur-2xl border border-white/[0.05] print:border-none shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)] rounded-2xl p-8 print:!p-0 print:shadow-none relative z-10">
                       
-                      {/* BLOCO 1: RESUMO POR CATEGORIA (RESTAURADO) */}
+                      {/* BLOCO 1: RESUMO POR CATEGORIA */}
                       <div className="mb-12 print:mb-8">
                         <h4 className="text-lg font-bold text-indigo-400 print:text-slate-900 uppercase tracking-wider mb-4">
                           Resumo por Categoria de Despesa
@@ -485,9 +609,10 @@ function App() {
                         <div className="overflow-x-auto rounded-xl border border-slate-700/50 print:border-none print:overflow-visible shadow-lg shadow-black/20 print:shadow-none">
                           <table className="w-full text-left border-collapse whitespace-nowrap">
                             <thead>
+                              {/* AJUSTE DE LARGURA: Tabela de Resumo */}
                               <tr className="bg-slate-900/80 print:bg-slate-100 text-slate-300 print:text-slate-900 text-xs font-bold border-b print:border-b-2 border-slate-700/50 print:border-slate-800">
-                                <th className="py-4 px-5 uppercase">Categoria {menuAtivo === 'contas-pagas' && '/ Conta Corrente'}</th>
-                                <th className="py-4 px-5 text-right uppercase">Total {menuAtivo === 'contas-pagas' ? 'Pago' : 'a Pagar'}</th>
+                                <th className="py-4 px-5 uppercase w-3/4">Categoria {menuAtivo === 'contas-pagas' && '/ Conta Corrente'}</th>
+                                <th className="py-4 px-5 text-right uppercase w-1/4 min-w-[120px]">Total {menuAtivo === 'contas-pagas' ? 'Pago' : 'a Pagar'}</th>
                               </tr>
                             </thead>
                             <tbody className="text-sm">
@@ -525,20 +650,21 @@ function App() {
                         </div>
                       </div>
 
-                      {/* BLOCO 2: DETALHAMENTO COM O TOTAL GERAL (RESTAURADO) */}
+                      {/* BLOCO 2: DETALHAMENTO */}
                       <h3 className="text-xl font-bold text-indigo-400 mb-4 print:text-slate-900 uppercase tracking-wider">Detalhamento Financeiro</h3>
                       <div className="overflow-x-auto rounded-xl border border-slate-700/50 print:border-none print:overflow-visible shadow-lg shadow-black/20 print:shadow-none">
                         <table className="w-full text-left border-collapse whitespace-nowrap">
                           <thead>
+                            {/* AJUSTE DE LARGURA: Tabela de Detalhamento Principal */}
                             <tr className="bg-slate-900/80 print:bg-slate-100 text-slate-300 print:text-slate-900 text-xs font-bold border-b print:border-b-2 border-slate-700/50 print:border-slate-800">
-                              <th className="py-4 px-5 text-center">Data Emissão</th>
-                              <th className="py-4 px-5">Categoria</th>
-                              <th className="py-4 px-5">Fornecedor</th>
-                              <th className="py-4 px-5 text-center">{menuAtivo === 'contas-pagas' ? 'Data Pagto' : 'Vencimento'}</th>
-                              {menuAtivo === 'contas-pagas' && <th className="py-4 px-5">Conta Corrente</th>}
-                              <th className="py-4 px-5 text-center">Nº Nota</th>
-                              <th className="py-4 px-5 text-center">Parcela</th>
-                              <th className="py-4 px-5 text-right">Valor</th>
+                              <th className="py-4 px-5 text-center w-28">Data Emissão</th>
+                              <th className="py-4 px-5 w-1/4 min-w-[200px]">Categoria</th>
+                              <th className="py-4 px-5 w-1/3 min-w-[250px]">Fornecedor</th>
+                              <th className="py-4 px-5 text-center w-28">{menuAtivo === 'contas-pagas' ? 'Data Pagto' : 'Vencimento'}</th>
+                              {menuAtivo === 'contas-pagas' && <th className="py-4 px-5 w-1/5 min-w-[150px]">Conta Corrente</th>}
+                              <th className="py-4 px-5 text-center w-24">Nº Nota</th>
+                              <th className="py-4 px-5 text-center w-20">Parcela</th>
+                              <th className="py-4 px-5 text-right w-32">Valor</th>
                             </tr>
                           </thead>
                           <tbody className="text-sm">
@@ -550,7 +676,7 @@ function App() {
                                     <td className="py-3 px-5 truncate max-w-[200px] print:max-w-none group-hover:text-indigo-300 transition-colors">{conta.desc_categoria}</td>
                                     <td className="py-3 px-5 truncate max-w-[250px] print:max-w-none font-medium text-slate-200 print:text-slate-900 group-hover:text-white transition-colors">{conta.nome_fornecedor}</td>
                                     <td className="py-3 px-5 text-center group-hover:text-slate-300 transition-colors">{menuAtivo === 'contas-pagas' ? conta.data_pagamento_br : conta.data_previsao_br}</td>
-                                    {menuAtivo === 'contas-pagas' && <td className="py-3 px-5 text-slate-300 truncate max-w-[200px] print:max-w-none">{conta.conta_corrente}</td>}
+                                    {menuAtivo === 'contas-pagas' && <td className="py-3 px-5 text-slate-300 truncate max-w-[150px] print:max-w-none">{conta.conta_corrente}</td>}
                                     <td className="py-3 px-5 text-center group-hover:text-slate-300 transition-colors">{conta.numero_documento_fiscal}</td>
                                     <td className="py-3 px-5 text-center group-hover:text-slate-300 transition-colors">{conta.numero_parcela}</td>
                                     <td className="py-3 px-5 text-right font-medium text-slate-200 print:text-slate-900 group-hover:text-emerald-400 transition-colors">
@@ -569,7 +695,6 @@ function App() {
                               </React.Fragment>
                             ))}
                             
-                            {/* O TOTAL GERAL NA TABELA DE DETALHAMENTO RESTAURADO */}
                             <tr className="bg-indigo-900/40 print:bg-slate-200 border-t-2 border-indigo-500/30 print:border-slate-800">
                               <td colSpan={menuAtivo === 'contas-pagas' ? "7" : "6"} className="py-5 px-5 text-right font-bold text-white print:text-slate-900 text-xl uppercase tracking-wider">
                                 Total Geral do Período
@@ -593,12 +718,12 @@ function App() {
 
         {modalBaixa.aberto && (
           <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center print:hidden p-4">
-            <div className="bg-slate-900 border border-slate-700 p-8 rounded-2xl max-w-2xl w-full shadow-2xl">
-              <h3 className="text-2xl font-bold text-white mb-1">Pagamento Múltiplo</h3>
-              <p className="text-slate-400 mb-6">Rateio matemático para o cliente <span className="text-indigo-400 font-bold">{modalBaixa.cliente}</span></p>
+            <div className="bg-slate-900 border border-slate-700 p-8 rounded-2xl max-w-5xl w-full shadow-2xl overflow-y-auto max-h-[90vh]">
+              <h3 className="text-2xl font-bold text-white mb-1">Confirmação de Recebimento</h3>
+              <p className="text-slate-400 mb-6">Ajuste os valores pagos para o cliente <span className="text-indigo-400 font-bold">{modalBaixa.cliente}</span></p>
               
               {(() => {
-                const { totalOriginal, totalFinal } = calcularRateio();
+                const { totalOriginal, totalPago } = calcularTotaisModal();
                 return (
                   <>
                     <div className="grid grid-cols-2 gap-4 mb-6">
@@ -606,38 +731,114 @@ function App() {
                         <p className="text-sm text-slate-400 font-medium">Qtd. Notas Selecionadas</p>
                         <p className="text-xl font-bold text-white">{modalBaixa.contas.length} nota(s)</p>
                       </div>
-                      <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
-                        <p className="text-sm text-slate-400 font-medium">Subtotal Original</p>
-                        <p className="text-xl font-bold text-slate-300">R$ {totalOriginal.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
+                      <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700 flex justify-between items-center">
+                        <div>
+                          <p className="text-sm text-slate-400 font-medium">Subtotal Original</p>
+                          <p className="text-xl font-bold text-slate-300">R$ {totalOriginal.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
+                        </div>
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-6 mb-6">
-                      <div>
-                        <label className="block text-sm font-medium text-slate-300 mb-2">Desconto</label>
-                        <div className="flex bg-slate-800 border border-slate-600 rounded-lg overflow-hidden">
-                          <select value={descontoTipo} onChange={e => setDescontoTipo(e.target.value)} className="bg-slate-700 text-white px-3 py-2 text-sm focus:outline-none border-none">
-                            <option value="VALOR">R$</option>
-                            <option value="PERCENTUAL">%</option>
-                          </select>
-                          <input type="number" min="0" placeholder="0.00" value={descontoValor} onChange={e => setDescontoValor(e.target.value)} className="w-full bg-transparent px-3 py-2 text-white outline-none" />
+                    <div className="bg-slate-800/80 p-5 rounded-xl border border-slate-600 mb-6">
+                      <div className="flex items-center gap-2 mb-4">
+                        <Zap size={18} className="text-amber-400" />
+                        <h4 className="text-white font-bold text-sm uppercase tracking-wider">Automação de Rateio (Cascata / FIFO)</h4>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                        <div className="col-span-1">
+                          <label className="block text-xs font-medium text-slate-400 mb-1">Desc. Taxa Cartão</label>
+                          <div className="flex bg-slate-900 border border-slate-600 rounded-lg overflow-hidden focus-within:border-indigo-500">
+                            <select value={descGlobalTipo} onChange={e => setDescGlobalTipo(e.target.value)} className="bg-slate-700 text-white px-2 py-2 text-sm focus:outline-none border-none">
+                              <option value="VALOR">R$</option>
+                              <option value="PERCENTUAL">%</option>
+                            </select>
+                            <input type="number" min="0" placeholder="Ex: 1.99" value={descGlobalValor} onChange={e => setDescGlobalValor(e.target.value)} className="w-full bg-transparent px-2 py-2 text-white outline-none text-sm" />
+                          </div>
+                        </div>
+                        <div className="col-span-1">
+                          <label className="block text-xs font-medium text-slate-400 mb-1">Juros / Multa</label>
+                          <div className="flex bg-slate-900 border border-slate-600 rounded-lg overflow-hidden focus-within:border-indigo-500">
+                            <select value={jurosGlobalTipo} onChange={e => setJurosGlobalTipo(e.target.value)} className="bg-slate-700 text-white px-2 py-2 text-sm focus:outline-none border-none">
+                              <option value="VALOR">R$</option>
+                              <option value="PERCENTUAL">%</option>
+                            </select>
+                            <input type="number" min="0" placeholder="Ex: 5.00" value={jurosGlobalValor} onChange={e => setJurosGlobalValor(e.target.value)} className="w-full bg-transparent px-2 py-2 text-white outline-none text-sm" />
+                          </div>
+                        </div>
+                        <div className="col-span-1">
+                          <label className="block text-xs font-medium text-emerald-400 mb-1">Valor Físico Recebido (R$)</label>
+                          <div className="flex bg-slate-900 border border-emerald-500/50 rounded-lg overflow-hidden focus-within:border-emerald-500">
+                            <span className="bg-emerald-900/30 text-emerald-400 px-3 py-2 text-sm font-bold">R$</span>
+                            <input type="number" min="0" placeholder="Ex: 500.00" value={valorTotalRecebido} onChange={e => setValorTotalRecebido(e.target.value)} className="w-full bg-transparent px-2 py-2 text-emerald-400 font-bold outline-none text-sm placeholder-emerald-800" />
+                          </div>
+                        </div>
+                        <div className="col-span-1">
+                          <button onClick={aplicarRateioGlobal} className="w-full bg-slate-700 hover:bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold transition-colors border border-slate-600 hover:border-indigo-500 h-[38px] text-sm flex justify-center items-center gap-2">
+                             <ArrowDownToLine size={16} /> Distribuir
+                          </button>
                         </div>
                       </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-300 mb-2">Juros / Multa</label>
-                        <div className="flex bg-slate-800 border border-slate-600 rounded-lg overflow-hidden">
-                          <select value={jurosTipo} onChange={e => setJurosTipo(e.target.value)} className="bg-slate-700 text-white px-3 py-2 text-sm focus:outline-none border-none">
-                            <option value="VALOR">R$</option>
-                            <option value="PERCENTUAL">%</option>
-                          </select>
-                          <input type="number" min="0" placeholder="0.00" value={jurosValor} onChange={e => setJurosValor(e.target.value)} className="w-full bg-transparent px-3 py-2 text-white outline-none" />
-                        </div>
-                      </div>
+                    </div>
+
+                    <div className="mb-6 overflow-x-auto rounded-xl border border-slate-700">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-slate-800 text-slate-300 text-xs font-bold border-b border-slate-700">
+                            <th className="py-3 px-4 w-24">Vencimento</th>
+                            <th className="py-3 px-4">Nota / Parcela</th>
+                            <th className="py-3 px-4 text-right">Saldo Devedor</th>
+                            <th className="py-3 px-4 text-right w-28">Desc (R$)</th>
+                            <th className="py-3 px-4 text-right w-28">Juros (R$)</th>
+                            <th className="py-3 px-4 text-right w-32">A Pagar (R$)</th>
+                          </tr>
+                        </thead>
+                        <tbody className="text-sm">
+                          {[...modalBaixa.contas].sort((a,b) => converterDataBrParaDate(a.data_previsao_br) - converterDataBrParaDate(b.data_previsao_br)).map(conta => {
+                            const det = detalhesPagamento[conta.codigo_lancamento] || { valor: '', desconto: '', juros: '' };
+                            const isZerada = det.valor === 0 || det.valor === '';
+                            
+                            return (
+                              <tr key={conta.codigo_lancamento} className={`border-b border-slate-700/50 hover:bg-slate-800/30 transition-colors ${isZerada ? 'opacity-50' : ''}`}>
+                                <td className="py-2 px-4 text-indigo-300 font-mono text-xs">{conta.data_previsao_br}</td>
+                                <td className="py-2 px-4 text-slate-300">{conta.numero_documento_fiscal} - {conta.numero_parcela}</td>
+                                <td className="py-2 px-4 text-right text-slate-400">R$ {conta.saldo_devedor.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</td>
+                                <td className="py-2 px-4 text-right">
+                                  <input 
+                                    type="number" 
+                                    min="0" step="0.01" 
+                                    value={det.desconto} 
+                                    onChange={(e) => handleAlterarDetalhe(conta.codigo_lancamento, 'desconto', e.target.value)}
+                                    className="w-full bg-slate-900 border border-slate-600 rounded px-2 py-1 text-white text-right outline-none focus:border-indigo-500" 
+                                  />
+                                </td>
+                                <td className="py-2 px-4 text-right">
+                                  <input 
+                                    type="number" 
+                                    min="0" step="0.01" 
+                                    value={det.juros} 
+                                    onChange={(e) => handleAlterarDetalhe(conta.codigo_lancamento, 'juros', e.target.value)}
+                                    className="w-full bg-slate-900 border border-slate-600 rounded px-2 py-1 text-white text-right outline-none focus:border-indigo-500" 
+                                  />
+                                </td>
+                                <td className="py-2 px-4 text-right">
+                                  <input 
+                                    type="number" 
+                                    min="0" step="0.01" 
+                                    value={det.valor} 
+                                    onChange={(e) => handleAlterarDetalhe(conta.codigo_lancamento, 'valor', e.target.value)}
+                                    className={`w-full border rounded px-2 py-1 font-bold text-right outline-none ${isZerada ? 'bg-slate-900 border-slate-700 text-slate-500' : 'bg-indigo-900/50 border-indigo-500/50 text-emerald-400 focus:border-emerald-500'}`}
+                                  />
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
                     </div>
 
                     <div className="bg-indigo-900/30 p-4 rounded-xl border border-indigo-500/30 mb-6 flex justify-between items-center">
-                      <p className="text-indigo-200 font-medium">Total com Rateio (A Pagar)</p>
-                      <p className="text-3xl font-black text-emerald-400">R$ {totalFinal.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
+                      <p className="text-indigo-200 font-medium">Total do Recebimento</p>
+                      <p className="text-3xl font-black text-emerald-400">R$ {totalPago.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
                     </div>
 
                     <div className="grid grid-cols-2 gap-6 mb-8">
@@ -650,7 +851,7 @@ function App() {
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-slate-300 mb-2">Data</label>
-                        <input type="date" value={dataPagamento} onChange={e => setDataPagamento(e.target.value)} className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-3 text-white text-sm [color-scheme:dark]" />
+                        <input type="date" max={getHojeBR()} value={dataPagamento} onChange={e => setDataPagamento(e.target.value)} className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-3 text-white text-sm [color-scheme:dark]" />
                       </div>
                     </div>
                   </>
@@ -660,7 +861,7 @@ function App() {
               <div className="flex gap-4">
                 <button onClick={() => setModalBaixa({aberto: false, cliente: '', contas: []})} className="flex-1 px-4 py-3 rounded-lg font-bold text-slate-300 bg-slate-800 hover:bg-slate-700 transition">Cancelar</button>
                 <button onClick={handleEfetuarBaixaLote} disabled={processandoBaixa || !contaDestino || !dataPagamento} className="flex-1 px-4 py-3 rounded-lg font-bold text-white bg-emerald-600 hover:bg-emerald-500 transition disabled:opacity-50 flex justify-center items-center gap-2">
-                  {processandoBaixa ? <><Loader2 size={18} className="animate-spin" /> Processando...</> : 'Confirmar Baixa Múltipla'}
+                  {processandoBaixa ? <><Loader2 size={18} className="animate-spin" /> Processando...</> : 'Confirmar Recebimento'}
                 </button>
               </div>
             </div>
@@ -707,7 +908,7 @@ function App() {
               </div>
 
               <div className="mb-12">
-                <h4 className="font-bold text-slate-700 mb-3 uppercase text-xs">Composição das Notas (Rateio)</h4>
+                <h4 className="font-bold text-slate-700 mb-3 uppercase text-xs">Composição das Notas Recebidas</h4>
                 <table className="w-full text-xs text-left">
                   <thead className="bg-slate-100 text-slate-600">
                     <tr>
