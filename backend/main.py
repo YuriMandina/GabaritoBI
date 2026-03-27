@@ -1,14 +1,16 @@
 import os
+import time  # NOVO: Para controlar o rate limit
 import requests
 import traceback
 import pandas as pd
+from datetime import datetime, timedelta  # NOVO: Para controlar o tempo do cache
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-# 1. SEGURANÇA E SETUP
+# --- SETUP DA APLICAÇÃO ---
 load_dotenv()
 APP_KEY = os.getenv("OMIE_APP_KEY")
 APP_SECRET = os.getenv("OMIE_APP_SECRET")
@@ -22,6 +24,24 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# --- SISTEMA DE CACHE EM MEMÓRIA (60 SEGUNDOS) ---
+# Evita requisições redundantes e o bloqueio de 30 minutos (HTTP 425)
+API_CACHE = {}
+
+
+def get_from_cache(chave_cache):
+    if chave_cache in API_CACHE:
+        if datetime.now() < API_CACHE[chave_cache]["expira_em"]:
+            return API_CACHE[chave_cache]["dados"]
+    return None
+
+
+def set_to_cache(chave_cache, dados, tempo_segundos=65):
+    API_CACHE[chave_cache] = {
+        "dados": dados,
+        "expira_em": datetime.now() + timedelta(seconds=tempo_segundos),
+    }
 
 
 # --- MODELOS DE DADOS PARA AÇÃO ---
@@ -40,9 +60,18 @@ class BaixaLoteRequest(BaseModel):
 
 # --- FUNÇÕES DE EXTRAÇÃO DA API OMIE ---
 def extrair_contas_pagar_abertas():
+    """Busca todos os títulos em aberto no Omie, utilizando cache para evitar bloqueios e lentidão."""
+    cache_key = "contas_pagar_abertas_geral"
+    dados_cacheados = get_from_cache(cache_key)
+
+    # Se os dados foram buscados há menos de 2 minutos, devolve da memória na hora!
+    if dados_cacheados:
+        return dados_cacheados
+
     url = "https://app.omie.com.br/api/v1/financas/contapagar/"
     pagina_atual, total_paginas = 1, 1
     todas_contas = []
+
     while pagina_atual <= total_paginas:
         payload = {
             "call": "ListarContasPagar",
@@ -51,7 +80,7 @@ def extrair_contas_pagar_abertas():
             "param": [
                 {
                     "pagina": pagina_atual,
-                    "registros_por_pagina": 500,
+                    "registros_por_pagina": 100,  # Limite oficial da Omie
                     "filtrar_apenas_titulos_em_aberto": "S",
                 }
             ],
@@ -63,21 +92,34 @@ def extrair_contas_pagar_abertas():
                 headers={"Content-Type": "application/json"},
                 timeout=15,
             ).json()
+            # Se o Omie retornar erro de redundância ou qualquer outro, paramos o loop
             if "faultstring" in res:
                 break
             total_paginas = res.get("total_de_paginas", 1)
             todas_contas.extend(res.get("conta_pagar_cadastro", []))
         except:
             break
+
         pagina_atual += 1
+        time.sleep(0.3)  # Pausa de segurança
+
+    # Salva na memória por 120 segundos (2 minutos)
+    set_to_cache(cache_key, todas_contas, tempo_segundos=120)
     return todas_contas
 
 
 def extrair_contas_receber_abertas():
-    """Busca todas as contas a receber em aberto (O seu Crediário/Fiado)"""
+    """Busca todas as contas a receber em aberto (O seu Crediário/Fiado) com Cache."""
+    cache_key = "contas_receber_abertas_geral"
+    dados_cacheados = get_from_cache(cache_key)
+
+    if dados_cacheados:
+        return dados_cacheados
+
     url = "https://app.omie.com.br/api/v1/financas/contareceber/"
     pagina_atual, total_paginas = 1, 1
     todas_contas = []
+
     while pagina_atual <= total_paginas:
         payload = {
             "call": "ListarContasReceber",
@@ -86,7 +128,7 @@ def extrair_contas_receber_abertas():
             "param": [
                 {
                     "pagina": pagina_atual,
-                    "registros_por_pagina": 500,
+                    "registros_por_pagina": 100,
                     "filtrar_apenas_titulos_em_aberto": "S",
                 }
             ],
@@ -104,11 +146,24 @@ def extrair_contas_receber_abertas():
             todas_contas.extend(res.get("conta_receber_cadastro", []))
         except:
             break
+
         pagina_atual += 1
+        time.sleep(0.3)
+
+    # Salva na memória por 120 segundos (2 minutos)
+    set_to_cache(cache_key, todas_contas, tempo_segundos=120)
     return todas_contas
 
 
+# --- FUNÇÕES DE EXTRAÇÃO DA API OMIE ---
+
+
 def extrair_dicionario_fornecedores():
+    cache_key = "dicionario_fornecedores"
+    dados_cacheados = get_from_cache(cache_key)
+    if dados_cacheados:
+        return dados_cacheados
+
     url = "https://app.omie.com.br/api/v1/geral/clientes/"
     pagina_atual, total_paginas = 1, 1
     dicionario = {}
@@ -117,7 +172,9 @@ def extrair_dicionario_fornecedores():
             "call": "ListarClientes",
             "app_key": APP_KEY,
             "app_secret": APP_SECRET,
-            "param": [{"pagina": pagina_atual, "registros_por_pagina": 500}],
+            "param": [
+                {"pagina": pagina_atual, "registros_por_pagina": 100}
+            ],  # REGRA ATUALIZADA
         }
         try:
             res = requests.post(
@@ -132,12 +189,20 @@ def extrair_dicionario_fornecedores():
                     "nome_fantasia", cli.get("razao_social", "")
                 )
         except:
-            pass
+            break
         pagina_atual += 1
+        time.sleep(0.3)  # REGRA ATUALIZADA: Respeitando limite de req/seg
+
+    set_to_cache(cache_key, dicionario)
     return dicionario
 
 
 def extrair_dicionario_categorias():
+    cache_key = "dicionario_categorias"
+    dados_cacheados = get_from_cache(cache_key)
+    if dados_cacheados:
+        return dados_cacheados
+
     url = "https://app.omie.com.br/api/v1/geral/categorias/"
     pagina_atual, total_paginas = 1, 1
     dicionario = {}
@@ -146,7 +211,9 @@ def extrair_dicionario_categorias():
             "call": "ListarCategorias",
             "app_key": APP_KEY,
             "app_secret": APP_SECRET,
-            "param": [{"pagina": pagina_atual, "registros_por_pagina": 500}],
+            "param": [
+                {"pagina": pagina_atual, "registros_por_pagina": 100}
+            ],  # REGRA ATUALIZADA
         }
         try:
             res = requests.post(
@@ -159,12 +226,20 @@ def extrair_dicionario_categorias():
             for cat in res.get("categoria_cadastro", []):
                 dicionario[cat["codigo"]] = cat["descricao"]
         except:
-            pass
+            break
         pagina_atual += 1
+        time.sleep(0.3)  # REGRA ATUALIZADA
+
+    set_to_cache(cache_key, dicionario)
     return dicionario
 
 
 def extrair_dicionario_contas_correntes():
+    cache_key = "dicionario_contas_correntes"
+    dados_cacheados = get_from_cache(cache_key)
+    if dados_cacheados:
+        return dados_cacheados
+
     url = "https://app.omie.com.br/api/v1/geral/contacorrente/"
     pagina_atual, total_paginas = 1, 1
     dicionario = {}
@@ -173,7 +248,9 @@ def extrair_dicionario_contas_correntes():
             "call": "ListarContasCorrentes",
             "app_key": APP_KEY,
             "app_secret": APP_SECRET,
-            "param": [{"pagina": pagina_atual, "registros_por_pagina": 500}],
+            "param": [
+                {"pagina": pagina_atual, "registros_por_pagina": 100}
+            ],  # REGRA ATUALIZADA
         }
         try:
             res = requests.post(
@@ -188,17 +265,28 @@ def extrair_dicionario_contas_correntes():
                 id_cc = str(cc.get("nCodCC", ""))
                 dicionario[id_cc] = cc.get("descricao", f"Conta {id_cc}")
         except:
-            pass
+            break
         pagina_atual += 1
+        time.sleep(0.3)  # REGRA ATUALIZADA
+
+    set_to_cache(cache_key, dicionario)
     return dicionario
 
 
 def extrair_movimentos_pagos_periodo(data_inicio: str, data_fim: str):
+    # A chave do cache precisa ter as datas para não misturar os relatórios
+    cache_key = f"mov_pagos_{data_inicio}_{data_fim}"
+    dados_cacheados = get_from_cache(cache_key)
+
+    if dados_cacheados:
+        return dados_cacheados
+
     url = "https://app.omie.com.br/api/v1/financas/mf/"
     dt_inicio_omie = pd.to_datetime(data_inicio).strftime("%d/%m/%Y")
     dt_fim_omie = pd.to_datetime(data_fim).strftime("%d/%m/%Y")
     pagina_atual, total_paginas = 1, 1
     todos_movimentos = []
+
     while pagina_atual <= total_paginas:
         payload = {
             "call": "ListarMovimentos",
@@ -207,7 +295,7 @@ def extrair_movimentos_pagos_periodo(data_inicio: str, data_fim: str):
             "param": [
                 {
                     "nPagina": pagina_atual,
-                    "nRegPorPagina": 500,
+                    "nRegPorPagina": 100,
                     "dDtPagtoDe": dt_inicio_omie,
                     "dDtPagtoAte": dt_fim_omie,
                     "cTpLancamento": "CP",
@@ -227,7 +315,11 @@ def extrair_movimentos_pagos_periodo(data_inicio: str, data_fim: str):
             todos_movimentos.extend(res.get("movimentos", []))
         except:
             break
+
         pagina_atual += 1
+        time.sleep(0.3)
+
+    set_to_cache(cache_key, todos_movimentos, tempo_segundos=120)
     return todos_movimentos
 
 
@@ -426,6 +518,14 @@ def obter_recebimentos_abertos():
         total = 0.0
 
         for c in contas_brutas:
+            # --- TRAVA DEFINITIVA: APENAS CREDIÁRIO ---
+            # Padronizamos para maiúsculo e removemos espaços acidentais
+            tipo_doc = str(c.get("codigo_tipo_documento", "")).strip().upper()
+
+            # Se não for 'CRE', ignoramos e pulamos para o próximo título
+            if tipo_doc != "CRE":
+                continue
+
             id_cli = str(c.get("codigo_cliente_fornecedor", ""))
             id_cat = str(c.get("codigo_categoria", ""))
             id_conta = str(c.get("id_conta_corrente", ""))
@@ -436,17 +536,23 @@ def obter_recebimentos_abertos():
 
             saldo = float(c.get("valor_documento", 0.0))
 
+            # Capturando a hora exata da inclusão da nota
+            info_registro = c.get("info", {})
+            hora_exata = info_registro.get("hInc", "00:00:00")
+
             contas_lista.append(
                 {
                     "codigo_lancamento": c.get("codigo_lancamento_omie"),
                     "data_previsao_br": tratar_vazio(c.get("data_vencimento")),
                     "data_emissao": tratar_vazio(c.get("data_emissao")),
+                    "hora_emissao": hora_exata,
+                    "tipo_documento": tipo_doc,
                     "numero_documento_fiscal": tratar_vazio(
                         c.get("numero_documento_fiscal")
                     ),
                     "numero_parcela": tratar_vazio(c.get("numero_parcela")),
                     "nome_cliente": nome_cli,
-                    "nome_fornecedor": nome_cli,  # Fallback visual para a tabela React
+                    "nome_fornecedor": nome_cli,
                     "desc_categoria": desc_cat,
                     "conta_corrente": nome_conta,
                     "saldo_devedor": saldo,
@@ -477,6 +583,8 @@ def baixar_recebimento_lote(req: BaixaLoteRequest):
     erros = []
 
     for pag in req.pagamentos:
+        time.sleep(0.3)
+
         payload = {
             "call": "LancarRecebimento",
             "app_key": APP_KEY,

@@ -425,6 +425,7 @@ function App() {
                                       </button>
                                     </th>
                                     <th className="py-3 px-5">Emissão</th>
+                                    <th className="py-3 px-5 text-indigo-300">Hora</th>
                                     <th className="py-3 px-5">Vencimento</th>
                                     <th className="py-3 px-5">Nota / Parcela</th>
                                     <th className="py-3 px-5">Conta Corrente</th>
@@ -440,6 +441,10 @@ function App() {
                                           {taSelecionado ? <CheckSquare size={18} className="text-indigo-400" /> : <Square size={18} className="text-slate-500" />}
                                         </td>
                                         <td className="py-3 px-5 text-slate-300 print:text-slate-800">{conta.data_emissao}</td>
+                                        
+                                        {/* NOVA CÉLULA EXIBINDO A HORA COM FONTE MONOESPAÇADA E COR DESTACADA */}
+                                        <td className="py-3 px-5 font-mono text-xs text-indigo-400 print:text-slate-600">{conta.hora_emissao}</td> 
+                                        
                                         <td className="py-3 px-5 text-slate-300 print:text-slate-800">{conta.data_previsao_br}</td>
                                         <td className="py-3 px-5 text-slate-300 print:text-slate-800">{conta.numero_documento_fiscal} - {conta.numero_parcela}</td>
                                         <td className="py-3 px-5 text-slate-400 print:text-slate-600">{conta.conta_corrente}</td>
